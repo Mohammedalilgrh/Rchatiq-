@@ -108,7 +108,7 @@ def getMessage():
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    bot.set_webhook(url='https://your-render-app.onrender.com/7716562183:AAEj_V9wzIYpd4THmG5TvOOTg9a7crvNo98')
+    bot.set_webhook(url='https://rchatiq.onrender.com/7716562183:AAEj_V9wzIYpd4THmG5TvOOTg9a7crvNo98')
     return "Bot is running!", 200
 
 if __name__ == "__main__":
