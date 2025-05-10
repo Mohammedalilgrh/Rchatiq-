@@ -19,8 +19,9 @@ waiting_users = []
 active_chats = {}
 user_stats = {}
 referral_system = {}
+user_balances = {}
 
-# التحقق من الاشتراك في القنوات (معدل)
+# التحقق من الاشتراك في القنوات
 def is_subscribed(user_id):
     try:
         for channel in REQUIRED_CHANNELS:
@@ -32,7 +33,7 @@ def is_subscribed(user_id):
         print(f"Error checking subscription: {e}")
         return False
 
-# واجهة البوت الرئيسية (معدلة)
+# واجهة البوت الرئيسية
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -43,9 +44,21 @@ def send_welcome(message):
             referrer_id = int(message.text.split()[1])
             if referrer_id != user_id:
                 if referrer_id not in referral_system:
-                    referral_system[referrer_id] = {'invites': 0, 'level': 1}
+                    referral_system[referrer_id] = {'invites': 0, 'level': 1, 'earnings': 0}
                 referral_system[referrer_id]['invites'] += 1
-                bot.send_message(referrer_id, f"🎉 تم انضمام عضو جديد عبر دعوتك! العدد الإجمالي: {referral_system[referrer_id]['invites']}")
+                referral_system[referrer_id]['earnings'] += 0.10
+                
+                # تحديث رصيد المدعو
+                if referrer_id not in user_balances:
+                    user_balances[referrer_id] = 0
+                user_balances[referrer_id] += 0.10
+                
+                bot.send_message(referrer_id, f"🎉 تم انضمام عضو جديد عبر دعوتك! ربحت 0.10$\nالعدد الإجمالي: {referral_system[referrer_id]['invites']}\nرصيدك الحالي: {user_balances[referrer_id]:.2f}$")
+                
+                # ترقية المستوى عند الوصول إلى 2$
+                if user_balances[referrer_id] >= 2 and referral_system[referrer_id]['level'] < 5:
+                    referral_system[referrer_id]['level'] = 5
+                    bot.send_message(referrer_id, "🎊 تم ترقيتك إلى المستوى 5! ميزات جديدة:\n• أولوية في البحث عن شركاء\n• مدة محادثة 20 دقيقة بدلاً من 10\n• مكافآت دعوة مضاعفة")
         except:
             pass
     
@@ -54,7 +67,7 @@ def send_welcome(message):
     else:
         show_main_menu(user_id)
 
-# عرض طلب الاشتراك (جديد)
+# عرض طلب الاشتراك
 def show_subscription_request(user_id):
     markup = types.InlineKeyboardMarkup()
     for channel in REQUIRED_CHANNELS:
@@ -63,25 +76,24 @@ def show_subscription_request(user_id):
             url=f"https://t.me/{channel[1:]}"
         ))
     markup.add(types.InlineKeyboardButton(
-        text="✅ لقد اشتركت بالفعل",
+        text="✅ لقد اشتركت",
         callback_data="check_subscription"
     ))
     
     bot.send_message(
         user_id,
-        "🔒 لتتمكن من استخدام البوت، يجب الاشتراك في القنوات التالية:\n\n" +
-        "\n".join([f"• {channel}" for channel in REQUIRED_CHANNELS]) +
-        "\n\nبعد الاشتراك، اضغط على الزر أدناه للتحقق",
+        "🔒 يجب الاشتراك في القنوات التالية:",
         reply_markup=markup
     )
 
-# القائمة الرئيسية (معدلة)
+# القائمة الرئيسية
 def show_main_menu(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("🚀 ابدأ الدردشة"),
         types.KeyboardButton("📊 إحصائياتي"),
         types.KeyboardButton("📣 دعوة أصدقاء"),
+        types.KeyboardButton("💰 سحب أرباحي"),
         types.KeyboardButton("ℹ️ المساعدة")
     )
     
@@ -92,17 +104,14 @@ def show_main_menu(user_id):
         f"""🎭 مرحبا بك في بوت الدردشة المجهولة!
 
 • محادثات 100% مجهولة
-• مدة كل محادثة: 10 دقائق
-• يمكنك التخطي في أي وقت
-
-📣 رابط دعوة الأصدقاء:
-{invite_link}
+• مكافآت دعوة الأصدقاء
+• نظام هرمي بمزايا متعددة
 
 اختر أحد الخيارات من القائمة:""",
         reply_markup=markup
     )
 
-# التحقق من الاشتراك (معدل)
+# التحقق من الاشتراك
 @bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
 def check_subscription(call):
     user_id = call.from_user.id
@@ -113,76 +122,79 @@ def check_subscription(call):
         bot.answer_callback_query(call.id, "❌ لم تشترك في جميع القنوات المطلوبة!")
         show_subscription_request(user_id)
 
-# بدء الدردشة (معدل)
+# بدء الدردشة
 @bot.message_handler(func=lambda message: message.text == "🚀 ابدأ الدردشة")
 def start_chat(message):
     user_id = message.from_user.id
     
-    # التحقق من الاشتراك أولاً
     if not is_subscribed(user_id):
         show_subscription_request(user_id)
         return
     
-    # التحقق إذا كان المستخدم في دردشة بالفعل
     for chat_pair in active_chats:
         if user_id in chat_pair:
-            bot.send_message(user_id, "⚠️ أنت بالفعل في دردشة نشطة!")
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(
+                types.KeyboardButton("⏭ إنهاء المحادثة"),
+                types.KeyboardButton("🔎 البحث عن شريك جديد")
+            )
+            bot.send_message(user_id, "⚠️ أنت بالفعل في دردشة نشطة!", reply_markup=markup)
             return
     
-    # التحقق إذا كان في قائمة الانتظار
     if user_id in waiting_users:
         bot.send_message(user_id, "⏳ أنت في قائمة الانتظار، جاري البحث عن شريك...")
         return
     
-    # إضافة المستخدم لقائمة الانتظار
     waiting_users.append(user_id)
     bot.send_message(user_id, "🔎 جاري البحث عن شريك دردشة...")
     
-    # محاولة إيجاد شريك إذا كان هناك مستخدمين آخرين في الانتظار
     if len(waiting_users) >= 2:
         user1 = waiting_users.pop(0)
         user2 = waiting_users.pop(0)
         
         start_time = time.time()
-        active_chats[(user1, user2)] = start_time
+        chat_duration = 600 if referral_system.get(user1, {}).get('level', 1) < 5 or referral_system.get(user2, {}).get('level', 1) < 5 else 1200
+        active_chats[(user1, user2)] = (start_time, chat_duration)
         
         for user in [user1, user2]:
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.add(types.KeyboardButton("⏭ إنهاء المحادثة"))
+            markup.add(
+                types.KeyboardButton("⏭ إنهاء المحادثة"),
+                types.KeyboardButton("🔎 البحث عن شريك جديد")
+            )
+            
+            duration_msg = "10 دقائق" if referral_system.get(user, {}).get('level', 1) < 5 else "20 دقائق"
             
             bot.send_message(
                 user,
-                "🎉 تم العثور على شريك دردشة!\n\n"
-                "• المحادثة مجهولة تماماً\n"
-                "• مدة المحادثة: 10 دقائق\n"
-                "• اضغط ⏭ إنهاء المحادثة للخروج",
+                f"🎉 تم العثور على شريك دردشة!\n\n"
+                f"• المحادثة مجهولة تماماً\n"
+                f"• مدة المحادثة: {duration_msg}\n"
+                f"• اختر أحد الخيارات أدناه",
                 reply_markup=markup
             )
             
-            # بدء العد التنازلي
-            Thread(target=countdown_timer, args=(user, start_time)).start()
+            Thread(target=countdown_timer, args=(user, start_time, chat_duration)).start()
 
-# عد تنازلي للمحادثة (معدل)
-def countdown_timer(user_id, start_time):
-    remaining = 600  # 10 دقائق
+# عد تنازلي للمحادثة
+def countdown_timer(user_id, start_time, duration):
+    remaining = duration
     last_alert = 0
     
     while remaining > 0:
         time.sleep(1)
-        remaining = 600 - (time.time() - start_time)
+        remaining = duration - (time.time() - start_time)
         
-        # إرسال تنبيه كل دقيقة
         if int(remaining / 60) > last_alert:
             last_alert = int(remaining / 60)
-            if last_alert > 0:  # لا تنبيه عند انتهاء الوقت
+            if last_alert > 0:
                 bot.send_message(user_id, f"⏳ متبقي {last_alert} دقيقة على انتهاء المحادثة")
     
-    # انتهاء الوقت
     end_chat(user_id)
 
-# إنهاء المحادثة (معدل)
+# إنهاء المحادثة
 @bot.message_handler(func=lambda message: message.text == "⏭ إنهاء المحادثة")
-def skip_chat(message):
+def end_chat_handler(message):
     end_chat(message.from_user.id)
 
 def end_chat(user_id):
@@ -200,7 +212,6 @@ def end_chat(user_id):
             if user != user_id:
                 bot.send_message(user, "تم إنهاء المحادثة.", reply_markup=types.ReplyKeyboardRemove())
             
-            # تحديث الإحصائيات
             if user not in user_stats:
                 user_stats[user] = {'chats': 0, 'last_chat': None}
             user_stats[user]['chats'] += 1
@@ -208,17 +219,26 @@ def end_chat(user_id):
             
             show_main_menu(user)
 
-# عرض الإحصائيات (معدل)
+# البحث عن شريك جديد
+@bot.message_handler(func=lambda message: message.text == "🔎 البحث عن شريك جديد")
+def find_new_partner(message):
+    user_id = message.from_user.id
+    
+    # إنهاء المحادثة الحالية إذا كان في واحدة
+    end_chat(user_id)
+    
+    # البدء في البحث عن شريك جديد
+    start_chat(message)
+
+# عرض الإحصائيات
 @bot.message_handler(func=lambda message: message.text == "📊 إحصائياتي")
 def show_stats(message):
     user_id = message.from_user.id
     
-    # تهيئة الإحصائيات إذا لم تكن موجودة
     if user_id not in user_stats:
         user_stats[user_id] = {
             'chats': 0,
-            'last_chat': None,
-            'invites': referral_system.get(user_id, {}).get('invites', 0)
+            'last_chat': None
         }
     
     stats = user_stats[user_id]
@@ -226,25 +246,30 @@ def show_stats(message):
     if stats['last_chat']:
         last_chat = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stats['last_chat']))
     
+    balance = user_balances.get(user_id, 0)
+    level = referral_system.get(user_id, {}).get('level', 1)
+    
     bot.send_message(
         user_id,
         f"""📊 إحصائياتك الشخصية:
 
 • عدد المحادثات: {stats['chats']}
 • آخر محادثة: {last_chat}
-• عدد المدعوين: {stats.get('invites', 0)}
+• رصيدك الحالي: {balance:.2f}$
+• مستواك الحالي: {level}
 • المستخدمين النشطين الآن: {len(waiting_users) + len(active_chats)*2}"""
     )
 
-# نظام الدعوة (معدل)
+# نظام الدعوة
 @bot.message_handler(func=lambda message: message.text == "📣 دعوة أصدقاء")
 def invite_friends(message):
     user_id = message.from_user.id
     
     if user_id not in referral_system:
-        referral_system[user_id] = {'invites': 0, 'level': 1}
+        referral_system[user_id] = {'invites': 0, 'level': 1, 'earnings': 0}
     
     invite_link = f"https://t.me/{(bot.get_me()).username}?start={user_id}"
+    balance = user_balances.get(user_id, 0)
     
     bot.send_message(
         user_id,
@@ -253,17 +278,44 @@ def invite_friends(message):
 رابط دعوتك الخاص:
 {invite_link}
 
-• كل صديق يدعوه صديقك سيزيد من مستواك
-• المكافآت تزداد مع كل مستوى
+🎁 لكل صديق تدعوه:
+• تربح 0.10$ مباشرة
+• عند وصول رصيدك لـ 2$، يتم ترقيتك للمستوى 5 تلقائياً
 
 إحصائياتك:
 ├ عدد المدعوين: {referral_system[user_id]['invites']}
+├ رصيدك الحالي: {balance:.2f}$
 └ المستوى الحالي: {referral_system[user_id]['level']}
 
 شارك الرابط مع أصدقائك واحصل على مكافآت!"""
     )
 
-# المساعدة (جديد)
+# سحب الأرباح
+@bot.message_handler(func=lambda message: message.text == "💰 سحب أرباحي")
+def withdraw_earnings(message):
+    user_id = message.from_user.id
+    balance = user_balances.get(user_id, 0)
+    
+    if balance < 2:
+        bot.send_message(
+            user_id,
+            f"❌ رصيدك الحالي {balance:.2f}$ غير كافي للسحب (الحد الأدنى 2$)\n\n"
+            "📣 ادعُ المزيد من الأصدقاء لزيادة رصيدك:\n"
+            f"https://t.me/{(bot.get_me()).username}?start={user_id}"
+        )
+    else:
+        # هنا يمكنك إضافة طريقة السحب الفعلية (PayPal، تحويل بنكي، إلخ)
+        user_balances[user_id] = 0
+        referral_system[user_id]['earnings'] += balance
+        
+        bot.send_message(
+            user_id,
+            f"✅ تم تقديم طلب سحب بقيمة {balance:.2f}$\n"
+            "سيتم التحويل خلال 24-48 ساعة\n\n"
+            "شكراً لاستخدامك بوتنا!"
+        )
+
+# المساعدة
 @bot.message_handler(func=lambda message: message.text == "ℹ️ المساعدة")
 def show_help(message):
     user_id = message.from_user.id
@@ -271,10 +323,11 @@ def show_help(message):
         user_id,
         """ℹ️ كيفية استخدام البوت:
 
-1. اشترك في القنوات المطلوبة
-2. اضغط "🚀 ابدأ الدردشة" للبحث عن شريك
-3. استمتع بمحادثة مجهولة لمدة 10 دقائق
-4. يمكنك إنهاء المحادثة في أي وقت
+1. اضغط "🚀 ابدأ الدردشة" للبحث عن شريك
+2. استمتع بمحادثة مجهولة
+3. يمكنك إنهاء المحادثة أو البحث عن شريك جديد
+4. ادعُ أصدقائك لربح 0.10$ لكل دعوة
+5. اسحب أرباحك عند الوصول لـ 2$
 
 📣 لدعوة أصدقاء:
 • شارك رابط الدعوة الخاص بك
@@ -283,17 +336,15 @@ def show_help(message):
 للإبلاغ عن مشاكل، راسل الدعم الفني"""
     )
 
-# معالجة الرسائل بين المستخدمين (معدل)
+# معالجة الرسائل بين المستخدمين
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message):
     user_id = message.from_user.id
     
-    # التحقق من الاشتراك أولاً
     if not is_subscribed(user_id):
         show_subscription_request(user_id)
         return
     
-    # البحث عن شريك الدردشة
     for pair in active_chats:
         if user_id in pair:
             partner = pair[0] if pair[1] == user_id else pair[1]
@@ -303,7 +354,6 @@ def handle_messages(message):
                 end_chat(user_id)
             return
     
-    # إذا لم يكن في دردشة
     bot.send_message(
         user_id,
         "لإرسال رسالة، يجب أن تكون في دردشة نشطة.\nاضغط 🚀 ابدأ الدردشة للبدء."
